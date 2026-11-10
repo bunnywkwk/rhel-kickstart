@@ -2,6 +2,7 @@
 # RHEL golden image for test VMs: kickstart install from the boot ISO (Red Hat CDN) -> patch -> generalize -> qcow2
 # One template for every RHEL major: versions/rhel<N>.pkrvars.hcl picks the ISO and kickstart/ks-rhel<N>.cfg.
 # Generic on purpose: no role, no app, no users. cloud-init adds the login of each test VM.
+# With -var-file=admin.pkrvars.hcl: the general-use image instead, with a sudo user (rhel<N>-golden-frqadmin).
 # Steps: docs/build.md
 # ==============================================================================
 
@@ -33,21 +34,34 @@ variable "iso_checksum" {
   description = "sha256:<hex> of the ISO, as on the Red Hat download page."
 }
 
-# Secrets: from the environment only.
+# Secrets: from git-ignored files (local.auto.pkrvars.hcl, admin.pkrvars.hcl; see the .example files) or PKR_VAR_* in the shell.
 
 variable "rhsm_org" {
   type        = string
   sensitive   = true
-  description = "Red Hat organization ID. Set as PKR_VAR_rhsm_org, never in a file."
+  description = "Red Hat organization ID. In local.auto.pkrvars.hcl (git-ignored) or PKR_VAR_rhsm_org."
 }
 
 variable "rhsm_activation_key" {
   type        = string
   sensitive   = true
-  description = "Red Hat activation key. Set as PKR_VAR_rhsm_activation_key, never in a file."
+  description = "Red Hat activation key. In local.auto.pkrvars.hcl (git-ignored) or PKR_VAR_rhsm_activation_key."
+}
+
+variable "admin_password_hash" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "openssl passwd -6 hash, in admin.pkrvars.hcl (git-ignored, -var-file=...): builds the general-use image with admin_user. Empty: the CI image, no users."
 }
 
 # Same for every version.
+
+variable "admin_user" {
+  type        = string
+  default     = "frqadmin"
+  description = "General-use image only: sudo user (wheel) with that password and the SSH key below."
+}
 
 variable "ssh_public_key_file" {
   type        = string
@@ -74,15 +88,26 @@ variable "headless" {
 # ---- Locals -------------------------------------------------------------------
 
 locals {
+  ssh_pubkey = trimspace(file(pathexpand(var.ssh_public_key_file)))
+  general    = var.admin_password_hash != ""
+
+  # General-use image only: the admin user's kickstart lines.
+  admin_user = local.general ? join("\n", [
+    "user --name=${var.admin_user} --groups=wheel --iscrypted --password=${var.admin_password_hash}",
+    "sshkey --username=${var.admin_user} \"${local.ssh_pubkey}\"",
+  ]) : ""
+
   # The version's kickstart with its placeholders filled in; the .cfg file itself never holds a secret.
-  kickstart_file = file(abspath("${path.root}/kickstart/ks-rhel${var.rhel_version}.cfg"))
-  kickstart_org  = replace(local.kickstart_file, "@@RHSM_ORG@@", var.rhsm_org)
-  kickstart_key  = replace(local.kickstart_org, "@@RHSM_ACTIVATION_KEY@@", var.rhsm_activation_key)
-  kickstart      = replace(local.kickstart_key, "@@PACKER_SSH_PUBKEY@@", trimspace(file(pathexpand(var.ssh_public_key_file))))
+  kickstart_file  = file(abspath("${path.root}/kickstart/ks-rhel${var.rhel_version}.cfg"))
+  kickstart_admin = replace(local.kickstart_file, "#@@ADMIN_USER@@", local.admin_user)
+  kickstart_org   = replace(local.kickstart_admin, "@@RHSM_ORG@@", var.rhsm_org)
+  kickstart_key   = replace(local.kickstart_org, "@@RHSM_ACTIVATION_KEY@@", var.rhsm_activation_key)
+  kickstart       = replace(local.kickstart_key, "@@PACKER_SSH_PUBKEY@@", local.ssh_pubkey)
 
   root_shell = "{{ .Vars }} sudo -E bash '{{ .Path }}'"
 
-  image_name = "rhel${var.rhel_version}-golden"
+  # rhel9-golden (CI), or rhel9-golden-frqadmin (general use): a different name, so the CI never picks the one with a user.
+  image_name = "rhel${var.rhel_version}-golden${local.general ? "-${var.admin_user}" : ""}"
 }
 
 

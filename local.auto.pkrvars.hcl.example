@@ -1,0 +1,9 @@
+# Copy to local.auto.pkrvars.hcl (git-ignored; Packer loads it by itself), fill in, then: chmod 600 local.auto.pkrvars.hcl
+# Red Hat console -> Inventory -> System Configuration -> Activation Keys.
+rhsm_org            = "<organization ID>"
+rhsm_activation_key = "<activation key name>"
+
+# Optional: change a default.
+# ssh_public_key_file  = "~/.ssh/id_ed25519.pub"
+# ssh_private_key_file = "~/.ssh/id_ed25519"
+# headless             = false

@@ -1,3 +1,4 @@
-# Local secrets and build output: never committed
+# Your own variable files (secrets) and build output: never committed
 *.auto.pkrvars.hcl
+admin.pkrvars.hcl
 output-*/

@@ -17,7 +17,15 @@ Also needed: Packer, and an SSH key at `~/.ssh/id_ed25519` (`ssh-keygen -t ed255
 
 console.redhat.com → Inventory → System Configuration → **Activation Keys** → Create. Note the **organization ID** and the key name.
 
-Both are secrets: type them in the shell (step 4), never in a file. A Red Hat username and password do not work here.
+Put both in your own settings file, which Git ignores:
+
+```bash
+cp local.auto.pkrvars.hcl.example local.auto.pkrvars.hcl
+chmod 600 local.auto.pkrvars.hcl            # only you can read it
+vi local.auto.pkrvars.hcl                   # set rhsm_org and rhsm_activation_key
+```
+
+Packer loads `*.auto.pkrvars.hcl` by itself. A Red Hat username and password do not work here.
 
 ## 3. ISO and checksum
 
@@ -34,10 +42,7 @@ The checksum must match the one on the Red Hat download page. Put the path and c
 ```bash
 cd golden-images
 packer init .
-read -rp 'Red Hat org ID: ' PKR_VAR_rhsm_org; read -rsp 'Activation key: ' PKR_VAR_rhsm_activation_key; echo
-export PKR_VAR_rhsm_org PKR_VAR_rhsm_activation_key
 packer build -var-file=versions/rhel<N>.pkrvars.hcl .
-unset PKR_VAR_rhsm_org PKR_VAR_rhsm_activation_key
 ```
 
 Takes 20–40 minutes. Expect at the end:
@@ -47,6 +52,31 @@ Takes 20–40 minutes. Expect at the end:
 ```
 
 To watch the install, add `-var headless=false`.
+
+### 4b. General-use image (with `frqadmin`)
+
+One time, make the admin settings file (Git ignores it):
+
+```bash
+cp admin.pkrvars.hcl.example admin.pkrvars.hcl
+chmod 600 admin.pkrvars.hcl
+openssl passwd -6                           # asks for the password, prints the hash
+vi admin.pkrvars.hcl                        # paste the hash into admin_password_hash
+```
+
+Then build with both files:
+
+```bash
+packer build -var-file=versions/rhel<N>.pkrvars.hcl -var-file=admin.pkrvars.hcl .
+```
+
+Without `-var-file=admin.pkrvars.hcl` you get the CI image, even when the file exists.
+
+Output: `output-rhel<N>-golden-frqadmin/rhel<N>-golden-frqadmin.qcow2`. `frqadmin` is in `wheel`: sudo asks for that password. It also gets the key in `~/.ssh/id_ed25519.pub`. Another name: `-var admin_user=<name>`.
+
+Every copy of this image has the same password: change it on a VM you keep (`passwd`).
+
+To use it in Cockpit: make a copy (`qemu-img create -f qcow2 -F qcow2 -b <image> <copy>.qcow2 20G`), Create VM → Import existing disk image → the copy, Customize VM → Firmware **UEFI**, then log in as `frqadmin`.
 
 ## 5. Put it in the pool `ci`
 
@@ -102,5 +132,7 @@ For a new minor release or monthly patches: update the ISO and checksum (step 3)
 | `Timeout waiting for SSH` | Install still running, or the kickstart failed | Rebuild with `-var headless=false` and watch |
 | `Output directory ... already exists` | An earlier build is still in `output-rhel<N>-golden/` | Move or delete it, then rebuild |
 | `Unset variable "rhel_version"` | No settings file given | Add `-var-file=versions/rhel<N>.pkrvars.hcl` |
+| `Unset variable "rhsm_org"` | No `local.auto.pkrvars.hcl`, or it is named differently | Copy it from the `.example` (step 2) |
+| Got `rhel<N>-golden` but wanted the `frqadmin` one | `-var-file=admin.pkrvars.hcl` was left out | Add it (step 4b), rebuild |
 | `ISO checksum does not match` | Wrong ISO or checksum in the settings file | Redo step 3 |
 | RHEL 10 stops at boot with `CPU does not support x86-64-v3` | The host CPU is too old for RHEL 10 | Build RHEL 10 on a newer host |

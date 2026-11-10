@@ -1,0 +1,7 @@
+# General-use image only. Copy to admin.pkrvars.hcl (git-ignored), fill in, then: chmod 600 admin.pkrvars.hcl
+# Build: packer build -var-file=versions/rhel9.pkrvars.hcl -var-file=admin.pkrvars.hcl .
+# The hash, never the password itself: openssl passwd -6
+admin_password_hash = "<output of openssl passwd -6>"
+
+# Optional: another user name.
+# admin_user = "frqadmin"
